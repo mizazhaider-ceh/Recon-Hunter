@@ -535,6 +535,68 @@ def _strip(s):
 
 
 # ============================================================
+#  SUMMARY TABLE  (the one-glance challenge map)
+# ============================================================
+TEXTLIKE = (None, 'text', 'search', 'email', 'textarea', 'url', 'tel', 'password')
+
+
+def primary_field(findings):
+    """The most likely inject field name on the page (for the -p column)."""
+    for fm in findings['parser'].forms:
+        for inp in fm['inputs']:
+            if inp.get('name') and inp.get('type') in TEXTLIKE:
+                return inp['name']
+    for inp in findings['parser'].inputs:
+        if inp.get('name'):
+            return inp['name']
+    return '-'
+
+
+def hint_keyword(findings):
+    """The grep keyword if the page hides a 'grep for X' hint."""
+    for kind, text in findings['hints']:
+        if kind == 'GREP HINT':
+            m = re.search(r'grep keyword:\s*(\S+)', text)
+            if m:
+                return m.group(1)
+    return '-'
+
+
+def page_title(findings):
+    p = findings['parser']
+    t = p.title or (p.headings[0][1] if p.headings else '')
+    return ' '.join(t.split())
+
+
+def render_summary(rows, out_lines):
+    def line(s=''):
+        print(s)
+        out_lines.append(_strip(s))
+
+    line(f'\n{C.BOLD}=========== CHALLENGE MAP ==========={C.R}')
+    header = '  %-12s %-7s %-16s %-16s %s' % ('target', 'solved', 'inject (-p)',
+                                              'hint / grep', 'title')
+    line(f'{C.DIM}{header}{C.R}')
+    line(f'{C.DIM}  {"-" * 68}{C.R}')
+    for label, solved, field, hint, title in rows:
+        row = '  %-12s %-7s %-16s %-16s %s' % (
+            label[:12], 'yes' if solved else ('err' if solved is None else 'no'),
+            (field or '-')[:16], (hint or '-')[:16], (title or '')[:40])
+        if solved is True:
+            print(f'{C.GREEN}{row}{C.R}')
+        elif solved is None:
+            print(f'{C.RED}{row}{C.R}')
+        else:
+            print(row)
+        out_lines.append(_strip(row))
+    solved_n = sum(1 for r in rows if r[1] is True)
+    hinted = [r[0] for r in rows if r[3] and r[3] != '-']
+    line(f'{C.DIM}  {"-" * 68}{C.R}')
+    line(f'  {C.GREEN}solved: {solved_n}{C.R}   '
+         f'{C.MAG}with grep hint: {len(hinted)}{C.R}   total: {len(rows)}')
+
+
+# ============================================================
 #  COOKIE SAFETY
 # ============================================================
 def cookie_safety_check(args):
@@ -691,6 +753,7 @@ def main():
     fetched = 0
     solved_count = 0
     ssl_hint_shown = False
+    summary_rows = []
 
     def fetch(item):
         label, url = item
@@ -710,6 +773,7 @@ def main():
         if err is not None:
             print(f'\n{C.BOLD}{C.CYAN}== {label} =={C.R}  {C.RED}[error]{C.R} {err}')
             out_lines.append(f'== {label} == [error] {err}')
+            summary_rows.append((label, None, 'err', '-', _strip(str(err))[:40]))
             if ('SSL' in err or 'cert' in err.lower()) and not ssl_hint_shown:
                 ssl_hint_shown = True
                 print(f'  {C.YELLOW}Add --insecure for self-signed lab certs.{C.R}')
@@ -718,11 +782,17 @@ def main():
         findings = analyze(text, rh, args.success_word)
         if findings['solved']:
             solved_count += 1
+        summary_rows.append((label, bool(findings['solved']),
+                             primary_field(findings), hint_keyword(findings),
+                             page_title(findings)))
         if full:
             render_full(label, url, status, rh, findings, args.success_word,
                         args.show_scripts, out_lines)
         else:
             render_card(label, url, status, rh, findings, args.success_word, out_lines)
+
+    if len(targets) > 1:
+        render_summary(summary_rows, out_lines)
 
     # summary
     print(f'\n{C.BOLD}=========== SUMMARY ==========={C.R}')
