@@ -1,0 +1,20 @@
+# Recon-Hunter has NO third-party dependencies.
+# It runs on the Python standard library only, so there is nothing to pip install.
+# Running "pip install -r requirements.txt" will succeed and install nothing.
+#
+# What you actually need:
+#   - Python 3.7 or newer
+#   - tkinter   (ONLY for the GUI, recon_hunter_gui.py)
+#
+# tkinter is part of the standard library and ships WITH Python on Windows and
+# macOS. On some Linux distributions it is a separate SYSTEM package (not a pip
+# package). If "python recon_hunter_gui.py" fails with:
+#       ModuleNotFoundError: No module named 'tkinter'
+# install it with your system package manager:
+#
+#   Debian / Ubuntu / Kali :  sudo apt install python3-tk
+#   Fedora                 :  sudo dnf install python3-tkinter
+#   Arch / Manjaro         :  sudo pacman -S tk
+#
+# The command-line tool (recon_hunter.py) does not need tkinter at all, only
+# Python 3. Nothing here comes from pip.
