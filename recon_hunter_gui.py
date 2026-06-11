@@ -53,10 +53,16 @@ HELP_SECTIONS = [
           '"Command preview" box shows exactly what is being run, and "Show '
           'request" prints the raw HTTP request that will be sent.'),
     ('h', 'What Recon-Hunter is for'),
-    ('p', 'It reads a page HTML for you (View Source, automated) and prints the '
-          'comments, forms, inject field names, hidden values, secrets, cookies, '
-          'and whether the page is already solved. Run it BEFORE the XSS or Auth '
-          'tools: it hands you the -p field name and the grep hint.'),
+    ('p', 'It reads a page HTML for you (View Source, automated) AND analyzes it: '
+          'comments in full, forms and inject field names, hidden values, secrets, '
+          'response headers, cookies, and whether the page is already solved. Run '
+          'it BEFORE the XSS or Auth tools: it hands you the -p field and the hint.'),
+    ('h', 'It also decodes and advises'),
+    ('p', 'The DECODER auto base64 / hex / URL-decodes anything that looks encoded '
+          '(and double-Base64), so the plaintext key just appears (covers the hex '
+          'user-id, Base64 input, and URL-encoded cookie challenges). RESPONSE '
+          'HEADERS are shown because custom headers often leak the key. NEXT STEPS '
+          'suggests the likely vulnerability and which tool to use.'),
     ('h', 'Two ways to target'),
     ('p', 'Single page: pick "URL" and paste one address. Add a Range to also '
           'sweep neighbouring challenge numbers (the number in ?challenge=N is '
@@ -93,9 +99,11 @@ HELP_SECTIONS = [
     ('o', 'OUTPUT'),
     ('p', '• Success word (--success): the word that marks a solved page. Default '
           'congratulations.'),
-    ('p', '• Full detail (--full) [check]: full output even in sweep mode.'),
+    ('p', '• Fetch & scan assets (--assets) [check]: download each linked .js/.css/'
+          '.txt and scan it for secrets and encoded strings.'),
+    ('p', '• Full detail (--full) [check]: full untruncated output even in sweep mode.'),
     ('p', '• Show scripts (--show-scripts) [check]: print inline <script> contents.'),
-    ('p', '• Save report to (-o): also write a plain-text report to a file.'),
+    ('p', '• Save report to (-o): also write the full plain-text report to a file.'),
     ('h', 'Quick checklist'),
     ('p', '1. URL or Sweep template (with {n}).'),
     ('p', '2. Range like 1-15 to see every challenge.'),
@@ -386,12 +394,17 @@ class App(tk.Tk):
                 'marks a SOLVED page; default congratulations',
                 tip='A page that contains this word is shown as SOLVED. On the Howest '
                     'mock exam the word is congratulations.')
+        self.v_assets = tk.BooleanVar()
+        self._c(lf, 1, 'Fetch & scan linked assets (--assets)', self.v_assets,
+                tip='Download each linked .js/.css/.txt and scan it for secrets and '
+                    'encoded strings. Cracks the "flag hidden in a .js" pattern '
+                    '(sometimes double-Base64).')
         self.v_full = tk.BooleanVar()
-        self._c(lf, 1, 'Full detail even in sweep (--full)', self.v_full)
+        self._c(lf, 2, 'Full untruncated detail even in sweep (--full)', self.v_full)
         self.v_scripts = tk.BooleanVar()
-        self._c(lf, 2, 'Show inline scripts (--show-scripts)', self.v_scripts)
+        self._c(lf, 3, 'Show inline scripts (--show-scripts)', self.v_scripts)
         self.v_output = tk.StringVar()
-        self._f(lf, 3, 'Save report to (-o)', self.v_output, 'plain-text report', save=True)
+        self._f(lf, 4, 'Save full report to (-o)', self.v_output, 'plain-text report', save=True)
 
         ttk.Frame(form).pack(pady=8)
 
@@ -462,6 +475,8 @@ class App(tk.Tk):
 
         if self.v_success.get().strip():
             a += ['--success', self.v_success.get().strip()]
+        if self.v_assets.get():
+            a += ['--assets']
         if self.v_full.get():
             a += ['--full']
         if self.v_scripts.get():

@@ -2,9 +2,9 @@
 
 # 🔎 Recon-Hunter
 
-### Exam-grade recon and View-Source automator. Single file. Zero dependencies.
+### Exam-grade recon + source-code analyzer. Single file. Zero dependencies.
 
-*Stop guessing the parameter and the hint. Let the page tell you.*
+*Stop guessing the parameter, the hint, and the encoding. Let the page tell you.*
 
 <br>
 
@@ -17,8 +17,8 @@
 
 ```text
 ╔══════════════════════════════════════════════════════╗
-║        Recon Hunter - View-Source Automator          ║
-║  Comments | Forms | Secrets | Cookies | Sweep-all    ║
+║      Recon Hunter - Recon + Source-Code Analyzer     ║
+║ Comments|Forms|Headers|Cookies|Decoder|Sweep|Advise  ║
 ║          stdlib only · no DoS · polite               ║
 ╚══════════════════════════════════════════════════════╝
 ```
@@ -158,15 +158,24 @@ python recon_hunter.py \
     --insecure
 ```
 
-You get one compact card per challenge:
+You get one rich card per challenge, for example:
 
 ```
-== challenge 2 ==  [unsolved]  status=200
-  title : Quick, create an alert to distract everybody!
-  form  : POST /challenge.php?challenge=2
-      alert (text) <- inject here (-p alert)
-  hint  : grep for 'tr0uble'   ->  grep keyword: tr0uble
-  set-cookie: KeyChallenge2=...
+=== challenge 13 ===  [unsolved]  status=200
+  title  : Quick, become the Sultan!
+  form   : POST /challenge.php?challenge=13
+      users (select)
+  select : users  options={2, 4, 6, 8, 10}
+      missing from UI -> try 0, 1, 11, 3, 5, 7, 9  (parameter tampering)
+  response headers:
+      Challengevalue: MakewayforPrinceAli  <- custom / interesting
+  decoded values:
+      guest  (hex-decoded, from comment: 6775657374)
+      You, uh, you don't want to go  (URL-decoded, from cookie KeyChallenge8)
+  HINT   : grep for 'tr0uble'   ->  grep keyword: tr0uble
+  NEXT STEPS:
+      > Dropdown "users" shows {2,4,6,8,10} -> try a value NOT in the list (e.g. 0,1,11)
+      > Custom response header(s) present -> the key may be leaked there
 ```
 
 In one run you learn, for every challenge: the inject field for your fuzzer, the
@@ -178,15 +187,24 @@ word), and any cookies set along the way. If your URL already contains
 
 ## 🔍 What it finds
 
+It is recon **and** source-code analysis in one report, printed in full (no
+cut-off):
+
 | Section | What it pulls out |
 |---------|-------------------|
-| `comments` | HTML comments, where instructors hide hints (the "grep for X" pattern is highlighted). |
+| `comments` | HTML comments in full, where instructors hide hints, keys, and request shapes (the "grep for X" pattern is highlighted). |
 | `form` | Each form's method, action, and every input name. The likely inject field is marked `<- inject here (-p NAME)`. |
-| `hidden` | Hidden input values: CSRF tokens, ids, sometimes flags. |
-| `secret` | Strings in inline scripts that look like keys, tokens, flags, passwords, or base64. |
+| `select` | Dropdown options, with **missing values flagged** as parameter-tampering targets (the classic "value not in the UI" trick). |
+| `response headers` | Interesting/custom response headers, because the key is often leaked in one (for example `Challengevalue:`). `--full` shows every header. |
 | `set-cookie` | Cookies the page issues (for example the `KeyChallengeN` chain you need for later challenges). |
-| `links` | Links to other pages and challenges. |
+| `decoded values` | A built-in **decoder** that auto base64 / hex / URL-decodes anything that looks encoded, including **double-base64**, so the plaintext key just appears. |
+| `secret` | Hidden inputs, data attributes, and strings in inline scripts that look like keys, tokens, flags, or passwords. |
+| `assets` | Linked `.js` / `.css` / `.txt`. With `--assets` it fetches and scans each one (cracks the "flag hidden in a `.js`" pattern). |
+| `NEXT STEPS` | An advisor that suggests the likely vulnerability and which tool to reach for. |
 | `SOLVED` | Whether the body already contains the success word (default `congratulations`). |
+
+Everything is shown in full. In `--full` mode (the default for a single page)
+nothing is truncated, and `-o FILE` saves the whole report.
 
 ---
 
@@ -215,9 +233,10 @@ word), and any cookies set along the way. If your URL already contains
 | Flag | What it does |
 |------|--------------|
 | `--success WORD` | The word that marks a solved page. Default `congratulations`. |
-| `--full` | Force full detail even in sweep mode. |
-| `--show-scripts` | Print inline `<script>` contents (can be noisy). |
-| `-o`, `--output FILE` | Also write a plain-text report to a file. |
+| `--assets` | Fetch each linked `.js` / `.css` / `.txt` and scan it for secrets and encoded strings. Cracks the "flag hidden in a `.js`" pattern (sometimes double-base64). |
+| `--full` | Full untruncated detail even in sweep mode (long output). |
+| `--show-scripts` | Print inline `<script>` contents in full (noisy but complete). |
+| `-o`, `--output FILE` | Also write the full plain-text report to a file. |
 | `--no-color` | Disable ANSI colors. |
 | `-y`, `--yes` | Skip the cookie-confirmation prompt. |
 
