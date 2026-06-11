@@ -649,9 +649,12 @@ def suggest(findings):
     if findings['headers']:
         tips.append('Custom response header(s) present -> the key may be leaked there '
                     '(see RESPONSE HEADERS above).')
-    if findings['assets']:
-        tips.append('Linked asset(s) found -> re-run with --assets to fetch and scan them '
-                    '(flags love to hide in a .js, sometimes double-Base64).')
+    boiler = findings.get('boiler_assets', set())
+    new_assets = [u for _, u in findings['assets'] if u not in boiler]
+    if new_assets:
+        tips.append('New/unusual asset(s): %s -> re-run with --assets to fetch and scan them '
+                    '(a fresh .js often hides the flag, sometimes double-Base64).'
+                    % ', '.join(new_assets))
     return tips
 
 
@@ -763,17 +766,25 @@ def render_page(label, url, status, findings, success_word, full, show_scripts, 
     for src, val in findings['secrets']:
         line(f'  {C.RED}secret :{C.R} ({src}) {cut(val, 160)}')
 
-    # assets
-    if findings['assets']:
-        line(f'  {C.BOLD}assets :{C.R} '
-             + ', '.join(f'{u}' for _, u in findings['assets']))
+    # assets (hide site-wide boilerplate unless --full; highlight the unusual ones)
+    boiler_a = findings.get('boiler_assets', set())
+    if full:
+        assets_show = [u for _, u in findings['assets']]
+    else:
+        assets_show = [u for _, u in findings['assets'] if u not in boiler_a]
+    if assets_show:
+        mark = '' if full else f'  {C.MAG}<- not on the other pages{C.R}'
+        line(f'  {C.BOLD}assets :{C.R} ' + ', '.join(assets_show) + mark)
 
-    # links
-    if findings['links']:
-        shown = findings['links'] if full else findings['links'][:8]
-        extra = ('' if full or len(findings['links']) <= 8
-                 else f'  (+{len(findings["links"]) - 8} more, use --full)')
-        line(f'  {C.DIM}links  :{C.R} ' + ', '.join(shown) + extra)
+    # links (hide site-wide boilerplate and index.php unless --full)
+    boiler_l = findings.get('boiler_links', set())
+    if full:
+        links_show = findings['links']
+    else:
+        links_show = [l for l in findings['links']
+                      if l not in boiler_l and l.lower() != 'index.php']
+    if links_show:
+        line(f'  {C.DIM}links  :{C.R} ' + ', '.join(links_show))
 
     if full and show_scripts:
         for kind, body in p.scripts:
@@ -1075,7 +1086,33 @@ def main():
     else:
         results.append(fetch(targets[0]))
 
+    # pass 1: analyze every page
+    analyzed = []
     for label, url, status, text, rh, err in results:
+        if err is not None:
+            analyzed.append((label, url, status, None, err))
+            continue
+        analyzed.append((label, url, status, analyze(text, rh, args.success_word), None))
+
+    # detect site-wide boilerplate (assets/links that repeat on most pages) so the
+    # cards show only what is UNIQUE to each challenge instead of a wall of noise
+    boiler_assets, boiler_links = set(), set()
+    if len(targets) > 1:
+        a_count, l_count, npages = {}, {}, 0
+        for _, _, _, f, _ in analyzed:
+            if f is None:
+                continue
+            npages += 1
+            for _, u in f['assets']:
+                a_count[u] = a_count.get(u, 0) + 1
+            for l in f['links']:
+                l_count[l] = l_count.get(l, 0) + 1
+        thresh = max(2, int(npages * 0.6))
+        boiler_assets = {u for u, c in a_count.items() if c >= thresh}
+        boiler_links = {l for l, c in l_count.items() if c >= thresh}
+
+    # pass 2: render
+    for label, url, status, findings, err in analyzed:
         if err is not None:
             print(f'\n{C.BOLD}{C.CYAN}== {label} =={C.R}  {C.RED}[error]{C.R} {err}')
             out_lines.append(f'== {label} == [error] {err}')
@@ -1085,9 +1122,11 @@ def main():
                 print(f'  {C.YELLOW}Add --insecure for self-signed lab certs.{C.R}')
             continue
         fetched += 1
-        findings = analyze(text, rh, args.success_word)
         if findings['solved']:
             solved_count += 1
+        findings['boiler_assets'] = boiler_assets
+        findings['boiler_links'] = boiler_links
+        findings['tips'] = suggest(findings)   # recompute now that boilerplate is known
         summary_rows.append((label, bool(findings['solved']),
                              primary_field(findings), hint_keyword(findings),
                              page_title(findings)))
@@ -1098,6 +1137,8 @@ def main():
 
     if len(targets) > 1:
         render_summary(summary_rows, out_lines)
+        print(f'  {C.DIM}(each card shows only what is unique to that challenge; '
+              f'site-wide assets/links are hidden - use --full to see everything){C.R}')
 
     print(f'\n{C.BOLD}=========== SUMMARY ==========={C.R}')
     print(f'  Pages fetched : {fetched} / {len(targets)}')
